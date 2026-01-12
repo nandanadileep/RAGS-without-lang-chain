@@ -118,13 +118,17 @@ def set_background():
         font-size: 21px !important;
     }}
     
-    /* PRESERVE PARAGRAPHS IN AI TEXT */
+    /* GUIDANCE TEXT STYLING */
     .guidance-text {{
-        line-height: 1.8;
         font-size: 19px; 
         text-align: justify; 
         opacity: 0.95;
-        white-space: pre-wrap; /* This preserves the AI's paragraphs */
+    }}
+
+    /* ADD MARGIN TO PARAGRAPHS INSIDE GUIDANCE */
+    .guidance-text p {{
+        margin-bottom: 20px;
+        line-height: 1.8;
     }}
     
     /* SPINNER COLOR */
@@ -174,55 +178,43 @@ if query:
         with st.spinner("Discernment..."):
             response = model.generate_content(prompt)
 
-            # C. Construct HTML
-            verses_html = ""
-            for r in results:
-                verses_html += f"""
-                <div style="margin-bottom:25px;">
-                    <span class="gold-text">{r['ref']}</span><br/>
-                    <i style="opacity: 0.85; font-size: 18px;">"{r['text']}"</i>
-                </div>
-                """
+            # C. Construct HTML safely
             
-            # Clean up and sanitize the AI text: escape HTML and preserve paragraphs
+            # 1. Process Guidance Text (Paragraphs)
             raw_text = (response.text or "")
-            raw_text = raw_text.replace("**", "")
-            escaped = html.escape(raw_text)
-            paragraphs = [f"<p>{p.strip()}</p>" for p in escaped.split("\n\n") if p.strip()]
+            raw_text = raw_text.replace("**", "") # Clean bolding
+            escaped_text = html.escape(raw_text)
+            
+            # Split by double newline to create distinct paragraphs
+            paragraphs = [f"<p>{p.strip()}</p>" for p in escaped_text.split("\n\n") if p.strip()]
             guidance_html = "".join(paragraphs)
 
-            # Ensure scripture text is escaped
-            safe_verses = []
-            for r in results:
-                ref = html.escape(r.get('ref', ''))
-                txt = html.escape(r.get('text', ''))
-                safe_verses.append({'ref': ref, 'text': txt})
-
+            # 2. Process Scripture Text
             verses_html = ""
-            for r in safe_verses:
-                verses_html += f"""
-                <div style=\"margin-bottom:25px;\"> 
-                    <span class=\"gold-text\">{r['ref']}</span><br/>
-                    <i style=\"opacity: 0.85; font-size: 18px;\">\"{r['text']}\"</i>
-                </div>
-                """
+            for r in results:
+                s_ref = html.escape(r.get('ref', ''))
+                s_txt = html.escape(r.get('text', ''))
+                verses_html += f"""<div style="margin-bottom:25px;">
+<span class="gold-text">{s_ref}</span><br/>
+<i style="opacity: 0.85; font-size: 18px;">"{s_txt}"</i>
+</div>"""
 
             # D. Display results
             st.markdown(f"""
-            <div class="result-container">
-                <h3 style="color: #d4af37; border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 10px; margin-bottom: 25px;">
-                    📖 Scripture
-                </h3>
-                {verses_html}
-                <br>
-                <h3 style="color: #d4af37; border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 10px; margin-bottom: 25px;">
-                    ✨ Guidance
-                </h3>
-                <div class="guidance-text">
-                    {guidance_html}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+<div class="result-container">
+<h3 style="color: #d4af37; border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 10px; margin-bottom: 25px;">
+📖 Scripture
+</h3>
+{verses_html}
+<br>
+<h3 style="color: #d4af37; border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 10px; margin-bottom: 25px;">
+✨ Guidance
+</h3>
+<div class="guidance-text">
+{guidance_html}
+</div>
+</div>
+""", unsafe_allow_html=True)
             
     except Exception as e:
         st.error(f"Error connecting to AI: {e}")
