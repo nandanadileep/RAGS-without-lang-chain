@@ -3,9 +3,10 @@ import google.generativeai as genai
 import rag_engine
 import os
 import base64
+import html
 
 # --- 1. CONFIGURATION & SETUP ---
-st.set_page_config(page_title="Genesis", layout="wide")
+st.set_page_config(page_title="Genesis", layout="wide", page_icon="🕊️")
 
 # Securely load API Key
 if "GOOGLE_API_KEY" in st.secrets:
@@ -13,33 +14,41 @@ if "GOOGLE_API_KEY" in st.secrets:
 elif os.getenv("GOOGLE_API_KEY"):
     API_KEY = os.getenv("GOOGLE_API_KEY")
 else:
-    st.error("❌ API Key missing. Please ensure you have a file named `.streamlit/secrets.toml` containing `GOOGLE_API_KEY = 'AIza...'`")
+    st.error("❌ API Key missing. Please check your secrets configuration.")
     st.stop()
 
 # --- 2. BACKGROUND & STYLING SETUP ---
 ASSETS_DIR = "assets"
-BACKGROUND_IMAGE = "supper.jpg"  # Options: "supper.jpg", "creation.jpg", "prodigal.jpg"
+BACKGROUND_IMAGE = "supper.jpg" 
 
 def get_base64_image(image_path):
     """Convert image to base64 for embedding in CSS"""
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode()
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except FileNotFoundError:
+        return None
 
 def set_background():
     """Apply fixed background image, dark input, and elegant typography"""
-    # 1. Get the absolute path to ensure image loading works in all environments
     base_dir = os.path.dirname(os.path.abspath(__file__))
     img_path = os.path.join(base_dir, ASSETS_DIR, BACKGROUND_IMAGE)
-    
-    # 2. Check if file exists
-    if not os.path.exists(img_path):
-        st.error(f"❌ Could not find image at: {img_path}")
-        return
-    
-    # 3. Convert to Base64
     b64_img = get_base64_image(img_path)
     
-    # 4. Inject CSS
+    # Fallback if image missing
+    bg_style = ""
+    if b64_img:
+        bg_style = f"""
+        background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), 
+                          url("data:image/jpeg;base64,{b64_img}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+        """
+    else:
+        bg_style = "background-color: #0e0e0e;"
+
     st.markdown(f"""
     <style>
     /* IMPORT ELEGANT FONTS */
@@ -47,12 +56,7 @@ def set_background():
 
     /* MAIN BACKGROUND */
     [data-testid="stAppViewContainer"] {{
-        background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), 
-                          url("data:image/jpeg;base64,{b64_img}");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-attachment: fixed;
+        {bg_style}
     }}
     
     /* REMOVE HEADER BACKGROUND */
@@ -60,7 +64,7 @@ def set_background():
 
     /* TYPOGRAPHY */
     h1, h2, h3 {{
-        font-family: 'Cinzel', serif !important; /* Roman-style headers */
+        font-family: 'Cinzel', serif !important;
         font-weight: 700 !important;
         text-transform: uppercase !important;
         letter-spacing: 2px !important;
@@ -69,7 +73,7 @@ def set_background():
     }}
     
     p, div, span, i {{
-        font-family: 'EB Garamond', serif !important; /* Elegant body text */
+        font-family: 'EB Garamond', serif !important;
         font-size: 19px !important;
         color: #f0f0f0 !important;
     }}
@@ -79,7 +83,7 @@ def set_background():
         background-color: rgba(0, 0, 0, 0.7) !important;
         color: #fff !important;
         border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 4px !important; /* Sharper corners for a classic look */
+        border-radius: 4px !important;
         padding: 15px !important;
         font-family: 'EB Garamond', serif !important;
         font-size: 20px !important;
@@ -88,28 +92,39 @@ def set_background():
     /* INPUT FOCUS STATE */
     .stTextInput > div > div > input:focus {{
         background-color: rgba(0, 0, 0, 0.9) !important;
-        border: 1px solid #d4af37 !important; /* Gold border */
+        border: 1px solid #d4af37 !important;
         box-shadow: 0 0 15px rgba(212, 175, 55, 0.3) !important;
     }}
     
-    .stTextInput > div > div > input::placeholder {{
-        color: rgba(255, 255, 255, 0.5) !important;
-    }}
-
     /* RESULT CARD STYLING */
     .result-container {{
         background-color: rgba(12, 12, 12, 0.85);
         padding: 40px;
-        border: 1px solid rgba(212, 175, 55, 0.3); /* Subtle Gold Border */
+        border: 1px solid rgba(212, 175, 55, 0.3);
         border-radius: 6px;
         margin-top: 30px;
         box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+        animation: fadeIn 1.5s ease-in-out;
     }}
-    
+
+    @keyframes fadeIn {{
+        0% {{ opacity: 0; transform: translateY(20px); }}
+        100% {{ opacity: 1; transform: translateY(0); }}
+    }}
+
     .gold-text {{
         color: #d4af37 !important;
         font-weight: bold;
         font-size: 21px !important;
+    }}
+    
+    /* PRESERVE PARAGRAPHS IN AI TEXT */
+    .guidance-text {{
+        line-height: 1.8;
+        font-size: 19px; 
+        text-align: justify; 
+        opacity: 0.95;
+        white-space: pre-wrap; /* This preserves the AI's paragraphs */
     }}
     
     /* SPINNER COLOR */
@@ -148,27 +163,64 @@ if query:
         model = genai.GenerativeModel('gemini-2.0-flash') 
         
         context = "\n".join([f"{r['ref']}: {r['text']}" for r in results])
-        prompt = f"User: {query}\nVerses: {context}\nProvide a comforting, biblical response using these verses. Keep it solemn, elegant, and wise."
+        prompt = (
+            f"User: {query}\n"
+            f"Verses: {context}\n"
+            "Provide a comforting, biblical response connecting the user's query to these verses. "
+            "Structure your response in clear, distinct paragraphs. "
+            "Keep the tone solemn, elegant, and wise."
+        )
         
         with st.spinner("Discernment..."):
             response = model.generate_content(prompt)
 
-            # C. Display results (Scripture FIRST, then Guidance)
+            # C. Construct HTML
+            verses_html = ""
+            for r in results:
+                verses_html += f"""
+                <div style="margin-bottom:25px;">
+                    <span class="gold-text">{r['ref']}</span><br/>
+                    <i style="opacity: 0.85; font-size: 18px;">"{r['text']}"</i>
+                </div>
+                """
+            
+            # Clean up and sanitize the AI text: escape HTML and preserve paragraphs
+            raw_text = (response.text or "")
+            raw_text = raw_text.replace("**", "")
+            escaped = html.escape(raw_text)
+            paragraphs = [f"<p>{p.strip()}</p>" for p in escaped.split("\n\n") if p.strip()]
+            guidance_html = "".join(paragraphs)
+
+            # Ensure scripture text is escaped
+            safe_verses = []
+            for r in results:
+                ref = html.escape(r.get('ref', ''))
+                txt = html.escape(r.get('text', ''))
+                safe_verses.append({'ref': ref, 'text': txt})
+
+            verses_html = ""
+            for r in safe_verses:
+                verses_html += f"""
+                <div style=\"margin-bottom:25px;\"> 
+                    <span class=\"gold-text\">{r['ref']}</span><br/>
+                    <i style=\"opacity: 0.85; font-size: 18px;\">\"{r['text']}\"</i>
+                </div>
+                """
+
+            # D. Display results
             st.markdown(f"""
             <div class="result-container">
                 <h3 style="color: #d4af37; border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 10px; margin-bottom: 25px;">
                     📖 Scripture
                 </h3>
-                {''.join([f'<div style="margin-bottom:25px;"><span class="gold-text">{r["ref"]}</span><br/><i style="opacity: 0.85; font-size: 18px;">"{r["text"]}"</i></div>' for r in results])}
-                
+                {verses_html}
                 <br>
-                
                 <h3 style="color: #d4af37; border-bottom: 1px solid rgba(212,175,55,0.3); padding-bottom: 10px; margin-bottom: 25px;">
                     ✨ Guidance
                 </h3>
-                <p style="line-height: 1.8; font-size: 19px; text-align: justify; opacity: 0.95;">
-                    {response.text}
-                </p>
+                <div class="guidance-text">
+                    {guidance_html}
+                </div>
             </div>
             """, unsafe_allow_html=True)
             
